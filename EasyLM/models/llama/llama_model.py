@@ -243,14 +243,13 @@ class LLaMAConfig(PretrainedConfig):
     def get_tokenizer(cls, config, padding_side='left', truncation_side='right'):
         config = cls.get_tokenizer_config(config)
         assert config.vocab_file != '', 'vocab_file must be specified'
-        tokenizer = LLaMATokenizer(
+        return LLaMATokenizer(
             vocab_file=config.vocab_file,
             add_bos_token=config.add_bos_token,
             add_eos_token=config.add_eos_token,
             padding_side=padding_side,
             truncation_side=truncation_side,
         )
-        return tokenizer
 
     @classmethod
     def load_config(cls, path):
@@ -498,8 +497,7 @@ class FlaxLLaMAAttention(nn.Module):
         attn_output = self._merge_heads(attn_output)
         attn_output = self.wo(attn_output)
         attn_output = self.resid_dropout(attn_output, deterministic=deterministic)
-        outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
-        return outputs
+        return (attn_output, attn_weights) if output_attentions else (attn_output,)
 
 
 class FlaxLLaMAMLP(nn.Module):
@@ -653,15 +651,14 @@ class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
 
         random_params = module_init_outputs["params"]
 
-        if params is not None:
-            random_params = flatten_dict(unfreeze(random_params))
-            params = flatten_dict(unfreeze(params))
-            for missing_key in self._missing_keys:
-                params[missing_key] = random_params[missing_key]
-            self._missing_keys = set()
-            return freeze(unflatten_dict(params))
-        else:
+        if params is None:
             return random_params
+        random_params = flatten_dict(unfreeze(random_params))
+        params = flatten_dict(unfreeze(params))
+        for missing_key in self._missing_keys:
+            params[missing_key] = random_params[missing_key]
+        self._missing_keys = set()
+        return freeze(unflatten_dict(params))
 
     def init_cache(self, batch_size, max_length):
         r"""
@@ -746,7 +743,7 @@ class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
             outputs, past_key_values = outputs
             outputs["past_key_values"] = unfreeze(past_key_values["cache"])
             return outputs
-        elif past_key_values is not None and not return_dict:
+        elif past_key_values is not None:
             outputs, past_key_values = outputs
             outputs = outputs[:1] + (unfreeze(past_key_values["cache"]),) + outputs[1:]
 
@@ -820,10 +817,7 @@ class FlaxLLaMABlockCollection(nn.Module):
             if output_attentions:
                 all_attentions += (layer_outputs[1],)
 
-        # this contains possible `None` values - `FlaxGPTJModule` will filter them out
-        outputs = (hidden_states, all_hidden_states, all_attentions)
-
-        return outputs
+        return hidden_states, all_hidden_states, all_attentions
 
 
 class FlaxLLaMAModule(nn.Module):
@@ -881,13 +875,14 @@ class FlaxLLaMAModule(nn.Module):
         else:
             outputs = (hidden_states,) + outputs[1:]
 
-        if not return_dict:
-            return tuple(v for v in outputs if v is not None)
-
-        return FlaxBaseModelOutput(
-            last_hidden_state=hidden_states,
-            hidden_states=outputs[1],
-            attentions=outputs[-1],
+        return (
+            FlaxBaseModelOutput(
+                last_hidden_state=hidden_states,
+                hidden_states=outputs[1],
+                attentions=outputs[-1],
+            )
+            if return_dict
+            else tuple(v for v in outputs if v is not None)
         )
 
 @add_start_docstrings("", "")
@@ -957,10 +952,15 @@ class FlaxLLaMAForCausalLMModule(nn.Module):
         else:
             lm_logits = self.lm_head(hidden_states)
 
-        if not return_dict:
-            return (lm_logits,) + outputs[1:]
-
-        return FlaxCausalLMOutput(logits=lm_logits, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
+        return (
+            FlaxCausalLMOutput(
+                logits=lm_logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (lm_logits,) + outputs[1:]
+        )
 
 
 @add_start_docstrings("", "")
@@ -1068,7 +1068,7 @@ class LLaMATokenizer(PreTrainedTokenizer):
     def get_vocab(self):
         """Returns vocab as a dict"""
         vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
-        vocab.update(self.added_tokens_encoder)
+        vocab |= self.added_tokens_encoder
         return vocab
 
     def _tokenize(self, text):
@@ -1081,8 +1081,7 @@ class LLaMATokenizer(PreTrainedTokenizer):
 
     def _convert_id_to_token(self, index):
         """Converts an index (integer) in a token (str) using the vocab."""
-        token = self.sp_model.IdToPiece(index)
-        return token
+        return self.sp_model.IdToPiece(index)
 
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (string) in a single string."""
@@ -1116,7 +1115,9 @@ class LLaMATokenizer(PreTrainedTokenizer):
             logger.error(f"Vocabulary path ({save_directory}) should be a directory")
             return
         out_vocab_file = os.path.join(
-            save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"]
+            save_directory,
+            (f"{filename_prefix}-" if filename_prefix else "")
+            + VOCAB_FILES_NAMES["vocab_file"],
         )
 
         if os.path.abspath(self.vocab_file) != os.path.abspath(out_vocab_file) and os.path.isfile(self.vocab_file):
@@ -1129,11 +1130,7 @@ class LLaMATokenizer(PreTrainedTokenizer):
         return (out_vocab_file,)
 
     def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None):
-        if self.add_bos_token:
-            bos_token_ids = [self.bos_token_id]
-        else:
-            bos_token_ids = []
-
+        bos_token_ids = [self.bos_token_id] if self.add_bos_token else []
         output = bos_token_ids + token_ids_0
 
         if token_ids_1 is not None:

@@ -92,9 +92,7 @@ class LMServer(object):
 
     @staticmethod
     def to_list(x):
-        if isinstance(x, np.ndarray):
-            return x.tolist()
-        return x
+        return x.tolist() if isinstance(x, np.ndarray) else x
 
     def serve_ready(self):
         return 'Ready!\n'
