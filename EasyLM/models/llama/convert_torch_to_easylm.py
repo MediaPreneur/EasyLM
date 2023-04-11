@@ -24,7 +24,7 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
 def main(argv):
     ckpt_paths = sorted(Path(FLAGS.checkpoint_dir).glob("*.pth"))
     ckpts = {}
-    for i, ckpt_path in enumerate(ckpt_paths):
+    for ckpt_path in ckpt_paths:
         checkpoint = torch.load(ckpt_path, map_location="cpu")
         ckpts[int(ckpt_path.name.split('.', maxsplit=2)[1])] = checkpoint
     ckpts = [ckpts[i] for i in sorted(list(ckpts.keys()))]

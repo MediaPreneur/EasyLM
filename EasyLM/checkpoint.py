@@ -126,10 +126,7 @@ class StreamingCheckpointer(object):
                     flattend_train_state[key] = value
 
         train_state = unflatten_dict(flattend_train_state)
-        if target is None:
-            return train_state
-
-        return from_state_dict(target, train_state)
+        return train_state if target is None else from_state_dict(target, train_state)
 
     @staticmethod
     def load_flax_checkpoint(path, target=None, shard_fns=None):
@@ -144,9 +141,7 @@ class StreamingCheckpointer(object):
             shard_fns = to_state_dict(shard_fns)
             state_dict = tree_apply(shard_fns, state_dict)
 
-        if target is None:
-            return state_dict
-        return from_state_dict(target, state_dict)
+        return state_dict if target is None else from_state_dict(target, state_dict)
 
     @classmethod
     def load_trainstate_checkpoint(cls, load_from, trainstate_target=None,

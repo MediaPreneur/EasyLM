@@ -47,7 +47,7 @@ class JaxRNG(object):
         else:
             split_rngs = jax.random.split(self.rng, num=len(keys) + 1)
             self.rng = split_rngs[0]
-            return {key: val for key, val in zip(keys, split_rngs[1:])}
+            return dict(zip(keys, split_rngs[1:]))
 
 
 class FlaxTemperatureLogitsWarper(FlaxLogitsWarper):
@@ -132,9 +132,9 @@ def get_jax_mp_mesh(mp_axis_dims, mp_axis_prefix='mp', dp_axis_name='dp'):
     if len(mp_axis_dims) == 1:
         axis_names.append(mp_axis_prefix)
     else:
-        for i in range(1, len(mp_axis_dims) + 1):
-            axis_names.append(f'{mp_axis_prefix}{i}')
-
+        axis_names.extend(
+            f'{mp_axis_prefix}{i}' for i in range(1, len(mp_axis_dims) + 1)
+        )
     return Mesh(np.array(jax.devices()).reshape(-1, *mp_axis_dims), axis_names)
 
 
@@ -205,19 +205,12 @@ def mse_loss(val, target, valid=None):
     if valid is None:
         valid = jnp.ones((*target.shape[:2], 1))
     valid = valid.astype(jnp.float32)
-    loss = jnp.mean(
-        jnp.where(
-            valid > 0.0,
-            jnp.square(val - target),
-            0.0
-        )
-    )
-    return loss
+    return jnp.mean(jnp.where(valid > 0.0, jnp.square(val - target), 0.0))
 
 
 def cross_entropy_loss(logits, labels, smoothing_factor=0.):
     num_classes = logits.shape[-1]
-    if labels.dtype == jnp.int32 or labels.dtype == jnp.int64:
+    if labels.dtype in [jnp.int32, jnp.int64]:
         labels = jax.nn.one_hot(labels, num_classes)
     if smoothing_factor > 0.:
         labels = labels * (1. - smoothing_factor) + smoothing_factor / num_classes
@@ -300,14 +293,10 @@ def flatten_tree(xs, is_leaf=None, sep=None):
         ValueError('fUnsupported node type: {type(xs)}')
 
     def _is_leaf(prefix, fx):
-        if is_leaf is not None:
-            return is_leaf(prefix, xs)
-        return False
+        return is_leaf(prefix, xs) if is_leaf is not None else False
 
     def _key(path):
-        if sep is None:
-            return path
-        return sep.join(path)
+        return path if sep is None else sep.join(path)
 
     def _convert_to_dict(xs):
         if isinstance(xs, (FrozenDict, dict)):

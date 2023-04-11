@@ -546,8 +546,7 @@ class FlaxRobertaSelfAttention(nn.Module):
         attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, value_states)
         attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
 
-        outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
-        return outputs
+        return (attn_output, attn_weights) if output_attentions else (attn_output,)
 
 
 # Copied from transformers.models.bert.modeling_flax_bert.FlaxBertSelfOutput with Bert->Roberta
@@ -749,12 +748,11 @@ class FlaxRobertaLayerCollection(nn.Module):
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
 
         # Check if head_mask has a correct number of layers specified if desired
-        if head_mask is not None:
-            if head_mask.shape[0] != (len(self.layers)):
-                raise ValueError(
-                    f"The head_mask should be specified for {len(self.layers)} layers, but it is for                  "
-                    f"       {head_mask.shape[0]}."
-                )
+        if head_mask is not None and head_mask.shape[0] != (len(self.layers)):
+            raise ValueError(
+                f"The head_mask should be specified for {len(self.layers)} layers, but it is for                  "
+                f"       {head_mask.shape[0]}."
+            )
 
         for i, layer in enumerate(self.layers):
             if output_hidden_states:
@@ -784,14 +782,15 @@ class FlaxRobertaLayerCollection(nn.Module):
 
         outputs = (hidden_states, all_hidden_states, all_attentions, all_cross_attentions)
 
-        if not return_dict:
-            return tuple(v for v in outputs if v is not None)
-
-        return FlaxBaseModelOutputWithPastAndCrossAttentions(
-            last_hidden_state=hidden_states,
-            hidden_states=all_hidden_states,
-            attentions=all_attentions,
-            cross_attentions=all_cross_attentions,
+        return (
+            FlaxBaseModelOutputWithPastAndCrossAttentions(
+                last_hidden_state=hidden_states,
+                hidden_states=all_hidden_states,
+                attentions=all_attentions,
+                cross_attentions=all_cross_attentions,
+            )
+            if return_dict
+            else tuple(v for v in outputs if v is not None)
         )
 
 
@@ -984,15 +983,14 @@ class FlaxRobertaPreTrainedModel(FlaxPreTrainedModel):
 
         random_params = module_init_outputs["params"]
 
-        if params is not None:
-            random_params = flatten_dict(unfreeze(random_params))
-            params = flatten_dict(unfreeze(params))
-            for missing_key in self._missing_keys:
-                params[missing_key] = random_params[missing_key]
-            self._missing_keys = set()
-            return freeze(unflatten_dict(params))
-        else:
+        if params is None:
             return random_params
+        random_params = flatten_dict(unfreeze(random_params))
+        params = flatten_dict(unfreeze(params))
+        for missing_key in self._missing_keys:
+            params[missing_key] = random_params[missing_key]
+        self._missing_keys = set()
+        return freeze(unflatten_dict(params))
 
     # Copied from transformers.models.bart.modeling_flax_bart.FlaxBartDecoderPreTrainedModel.init_cache
     def init_cache(self, batch_size, max_length):
@@ -1090,7 +1088,7 @@ class FlaxRobertaPreTrainedModel(FlaxPreTrainedModel):
                 outputs, past_key_values = outputs
                 outputs["past_key_values"] = unfreeze(past_key_values["cache"])
                 return outputs
-            elif past_key_values is not None and not return_dict:
+            elif past_key_values is not None:
                 outputs, past_key_values = outputs
                 outputs = outputs[:1] + (unfreeze(past_key_values["cache"]),) + outputs[1:]
 
@@ -1243,13 +1241,14 @@ class FlaxRobertaForMaskedLMModule(nn.Module):
         # Compute the prediction scores
         logits = self.lm_head(hidden_states, shared_embedding=shared_embedding)
 
-        if not return_dict:
-            return (logits,) + outputs[1:]
-
-        return FlaxMaskedLMOutput(
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+        return (
+            FlaxMaskedLMOutput(
+                logits=logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (logits,) + outputs[1:]
         )
 
 
@@ -1309,13 +1308,14 @@ class FlaxRobertaForSequenceClassificationModule(nn.Module):
         sequence_output = outputs[0]
         logits = self.classifier(sequence_output, deterministic=deterministic)
 
-        if not return_dict:
-            return (logits,) + outputs[1:]
-
-        return FlaxSequenceClassifierOutput(
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+        return (
+            FlaxSequenceClassifierOutput(
+                logits=logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (logits,) + outputs[1:]
         )
 
 
@@ -1390,13 +1390,14 @@ class FlaxRobertaForMultipleChoiceModule(nn.Module):
 
         reshaped_logits = logits.reshape(-1, num_choices)
 
-        if not return_dict:
-            return (reshaped_logits,) + outputs[2:]
-
-        return FlaxMultipleChoiceModelOutput(
-            logits=reshaped_logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+        return (
+            FlaxMultipleChoiceModelOutput(
+                logits=reshaped_logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (reshaped_logits,) + outputs[2:]
         )
 
 
@@ -1472,13 +1473,14 @@ class FlaxRobertaForTokenClassificationModule(nn.Module):
         hidden_states = self.dropout(hidden_states, deterministic=deterministic)
         logits = self.classifier(hidden_states)
 
-        if not return_dict:
-            return (logits,) + outputs[1:]
-
-        return FlaxTokenClassifierOutput(
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+        return (
+            FlaxTokenClassifierOutput(
+                logits=logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (logits,) + outputs[1:]
         )
 
 
@@ -1548,14 +1550,15 @@ class FlaxRobertaForQuestionAnsweringModule(nn.Module):
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1)
 
-        if not return_dict:
-            return (start_logits, end_logits) + outputs[1:]
-
-        return FlaxQuestionAnsweringModelOutput(
-            start_logits=start_logits,
-            end_logits=end_logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+        return (
+            FlaxQuestionAnsweringModelOutput(
+                start_logits=start_logits,
+                end_logits=end_logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+            if return_dict
+            else (start_logits, end_logits) + outputs[1:]
         )
 
 
@@ -1632,14 +1635,15 @@ class FlaxRobertaForCausalLMModule(nn.Module):
         # Compute the prediction scores
         logits = self.lm_head(hidden_states, shared_embedding=shared_embedding)
 
-        if not return_dict:
-            return (logits,) + outputs[1:]
-
-        return FlaxCausalLMOutputWithCrossAttentions(
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-            cross_attentions=outputs.cross_attentions,
+        return (
+            FlaxCausalLMOutputWithCrossAttentions(
+                logits=logits,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+                cross_attentions=outputs.cross_attentions,
+            )
+            if return_dict
+            else (logits,) + outputs[1:]
         )
 
 

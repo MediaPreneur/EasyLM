@@ -232,14 +232,13 @@ class AccumulateGradientBF16(optax.MultiSteps):
         )
         gradient_step = jnp.zeros([], dtype=jnp.int32)
         _, skip_state = self._should_skip_update_fn(updates, gradient_step, params)
-        init_state = optax.MultiStepsState(
+        return optax.MultiStepsState(
             mini_step=jnp.zeros([], dtype=jnp.int32),
             gradient_step=gradient_step,
             inner_opt_state=self._opt.init(params),
             acc_grads=updates,
-            skip_state=skip_state
+            skip_state=skip_state,
         )
-        return init_state
 
     def update(self, updates, state, params, **extra_args):
         k_steps = self._every_k_schedule(state.gradient_step)

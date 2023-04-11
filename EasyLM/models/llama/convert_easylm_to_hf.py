@@ -80,10 +80,7 @@ def match_keywords(string, positives, negatives):
     for positive in positives:
         if positive not in string:
             return False
-    for negative in negatives:
-        if negative in string:
-            return False
-    return True
+    return all(negative not in string for negative in negatives)
 
 
 def load_and_convert_checkpoint(path):
